@@ -16,6 +16,7 @@ static void quit_cb(struct tray_menu *item) {
   (void)item;
   tray_exit();
 }
+
 static struct tray tray = {
     .icon = TRAY_ICON,
     .menu = (struct tray_menu[]){ {
@@ -30,7 +31,13 @@ static void timer_cb() {
     update_submenu(&tray, &ctx);
 }
 
-int main() {
+static void on_click(struct tray_menu* item) {
+    int idx = item->context;
+    set_server(&ctx, idx);
+    update_submenu(&tray, &ctx);
+}
+
+int main(int argc, char* argv[]) {
   if (tray_init(&tray) < 0) {
     printf("failed to create tray\n");
     return 1;
@@ -40,6 +47,7 @@ int main() {
   ShowWindow(hWnd, SW_HIDE);
 
   init_menu_context(&ctx, "127.0.0.1", 11080);
+  ctx.cb = on_click;
   update_submenu(&tray, &ctx);
 
   UINT_PTR timerid = SetTimer(NULL, 0, 30000, &timer_cb);

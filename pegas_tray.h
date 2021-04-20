@@ -7,6 +7,7 @@
 #include "3rd-party/tray.h"
 
 #define DEFAULT_BUFLEN 2048
+static char recvbuf[DEFAULT_BUFLEN] = { 0 };
 
 struct menu_context {
 	struct pegas_control_endpoint {
@@ -14,6 +15,7 @@ struct menu_context {
 		int port;
 	} endpoint;
 	SOCKET sock;
+	void (*cb)(struct tray_menu*);
 };
 
 struct server_info {
@@ -59,7 +61,7 @@ static void init_menu_context(struct menu_context * ctx, const char* host, int p
 	ctx->sock = sock;
 }
 
-static void update_submemu_by_info(struct tray_menu *root, const char * info) {
+static void update_submemu_by_info(struct tray_menu *root, void (*cb)(struct tray_menu*), const char * info) {
 	struct server_info* prev = root->context;
 	struct server_info* cur = prev->next;
 	const char s[2] = "\n";
@@ -100,7 +102,7 @@ static void update_submemu_by_info(struct tray_menu *root, const char * info) {
 			submenu[i].text = sinfo->title;
 			submenu[i].checked = sinfo->title[0] == '*';
 			submenu[i].disabled = 0;
-			submenu[i].cb = NULL; // TODO: pick server
+			submenu[i].cb = cb;
 			submenu[i].submenu = NULL;
 			submenu[i].context = i / 3;
 
@@ -118,12 +120,7 @@ static void update_submemu_by_info(struct tray_menu *root, const char * info) {
 		root->submenu = submenu;
 }
 
-static void update_submenu(struct tray *tray, struct menu_context * ctx) {
-	if (tray->menu[0].context == NULL) {
-		struct server_info* sinfo = malloc(sizeof(struct server_info));
-		sinfo->next = NULL;
-		tray->menu[0].context = sinfo;
-	}
+static void get_servers(struct menu_context* ctx) {
 	char* sendbuf = "get servers";
 	int i_res = send(ctx->sock, sendbuf, (int)strlen(sendbuf), 0);
 	if (i_res == SOCKET_ERROR) {
@@ -134,7 +131,35 @@ static void update_submenu(struct tray *tray, struct menu_context * ctx) {
 	}
 	printf("Bytes Sent: %ld\n", i_res);
 
-	char recvbuf[DEFAULT_BUFLEN] = { 0 };
+	int recvbuflen = DEFAULT_BUFLEN;
+
+	// blocking
+	i_res = recv(ctx->sock, recvbuf, recvbuflen, 0);
+	if (i_res > 0) {
+		if (i_res >= recvbuflen) {
+			printf("Not implement yet.\n");
+		}
+	}
+	else if (i_res == 0)
+		printf("Connection closed\n");
+	else
+		printf("recv failed: %d\n", WSAGetLastError());
+
+	return NULL;
+}
+
+static void set_server(struct menu_context* ctx, int idx) {
+	char sendbuf[256] = { 0 };
+	sprintf(sendbuf, "set server %d", idx);
+	int i_res = send(ctx->sock, sendbuf, (int)strlen(sendbuf), 0);
+	if (i_res == SOCKET_ERROR) {
+		printf("send failed: %d\n", WSAGetLastError());
+		closesocket(ctx->sock);
+		WSACleanup();
+		return 1;
+	}
+	printf("Bytes Sent: %ld\n", i_res);
+
 	int recvbuflen = DEFAULT_BUFLEN;
 
 	// blocking
@@ -144,9 +169,7 @@ static void update_submenu(struct tray *tray, struct menu_context * ctx) {
 			printf("Not implement yet.\n");
 		}
 		else {
-			printf("Bytes received: %d\n%s\n", i_res, recvbuf);
-			update_submemu_by_info(&tray->menu[0], recvbuf);
-			tray_update(tray);
+			printf("resp: %s\n", recvbuf);
 		}
 	}
 	else if (i_res == 0)
@@ -154,4 +177,16 @@ static void update_submenu(struct tray *tray, struct menu_context * ctx) {
 	else
 		printf("recv failed: %d\n", WSAGetLastError());
 
+	return NULL;
+}
+
+static void update_submenu(struct tray *tray, struct menu_context * ctx) {
+	if (tray->menu[0].context == NULL) {
+		struct server_info* sinfo = malloc(sizeof(struct server_info));
+		sinfo->next = NULL;
+		tray->menu[0].context = sinfo;
+	}
+	get_servers(ctx);
+	update_submemu_by_info(&tray->menu[0], ctx->cb, recvbuf);
+	tray_update(tray);
 }
